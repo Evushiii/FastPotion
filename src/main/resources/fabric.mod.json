@@ -1,38 +1,82 @@
-{
-	"schemaVersion": 1,
-	"id": "modid",
-	"version": "${version}",
-	"name": "Example Mod",
-	"description": "This is an example description! Tell everyone what your mod is about!",
-	"authors": [
-		"Me!"
-	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
-	"license": "CC0-1.0",
-	"icon": "assets/modid/icon.png",
-	"environment": "*",
-	"entrypoints": {
-		"main": [
-			"com.example.ExampleMod"
-		],
-		"client": [
-			"com.example.client.ExampleModClient"
-		]
-	},
-	"mixins": [
-		"modid.mixins.json",
-		{
-			"config": "modid.client.mixins.json",
-			"environment": "client"
-		}
-	],
-	"depends": {
-		"fabricloader": ">=0.19.3",
-		"minecraft": "~26.1.2",
-		"java": ">=25",
-		"fabric-api": "*"
-	}
+package net.fabricmc.example.mixin;
+
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.ThrowablePotionItem;
+import net.minecraft.item.EnderPearlItem;
+import net.minecraft.item.ExperienceBottleItem;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(MinecraftClient.class)
+public class FastPotionMixin {
+    
+    @Shadow public ClientPlayerEntity player;
+    @Shadow public int itemUseCooldown;
+
+    // Hileyi insansı göstermek için rastgelelik kütüphanesi
+    private final java.util.Random random = new java.util.Random();
+
+    @Inject(at = @At("HEAD"), method = "tick")
+    private void onTick(CallbackInfo info) {
+        MinecraftClient client = (MinecraftClient) (Object) this;
+        
+        if (this.player == null) return;
+
+        ItemStack mainHand = this.player.getMainHandStack();
+        ItemStack offHand = this.player.getOffHandStack();
+
+        // Elindeki fırlatılabilir eşyaları kontrol et
+        boolean holdingThrowable = mainHand.getItem() instanceof ThrowablePotionItem || 
+                                   offHand.getItem() instanceof ThrowablePotionItem ||
+                                   mainHand.getItem() instanceof EnderPearlItem ||
+                                   mainHand.getItem() instanceof ExperienceBottleItem;
+
+        // Sağ tıka basılı tutulduğunda çalışır
+        if (holdingThrowable && client.options.useKey.isPressed()) {
+            
+            // Bekleme süresini Stray'i bypass edecek şekilde sürekli karıştırır
+            if (this.itemUseCooldown > 0) {
+                int şans = random.nextInt(100);
+                
+                if (şans < 45) {
+                    // %45 İhtimalle: 2 Tick (100ms) delay
+                    this.itemUseCooldown = 2;
+                } else if (şans < 85) {
+                    // %40 İhtimalle: 3 Tick (150ms) delay
+                    this.itemUseCooldown = 3;
+                } else {
+                    // %15 İhtimalle: 1 Tick (50ms) delay (Anlık lag süsü verir)
+                    this.itemUseCooldown = 1;
+                }
+            }
+
+            // Feather / Lunar Keystrokes göstergesini tetikler
+            KeyBinding.onKeyPressed(client.options.useKey.getDefaultKey());
+            
+            // Sağ tık paketini log düşürmeden sisteme gönderir
+            try {
+                java.lang.reflect.Method itemUseMethod = null;
+                for (java.lang.reflect.Method method : MinecraftClient.class.getDeclaredMethods()) {
+                    if (method.getReturnType() == void.class && method.getParameterCount() == 0 && 
+                       (method.getName().equals("doItemUse") || method.getName().equals("method_1583") || method.getName().equals("method_55243"))) {
+                        itemUseMethod = method;
+                        break;
+                    }
+                }
+                
+                if (itemUseMethod != null) {
+                    itemUseMethod.setAccessible(true);
+                    itemUseMethod.invoke(client);
+                }
+            } catch (Exception e) {
+                // Hataları gizle, loglar temiz kalsın
+            }
+        }
+    }
 }
